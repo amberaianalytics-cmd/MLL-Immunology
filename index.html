@@ -501,6 +501,7 @@
                 color:UI.color.textSoft, align:'center'
             }).setOrigin(0.5).setDepth(6);
         }
+        
         /**
          * Main Phaser Scene Object
          * FIX 3: Moved this entire object *before* the startMission() function
@@ -514,7 +515,7 @@
 
             create: function() {
                 log('AlfieLab', 'create');
-                GameState.game = this; // Save scene context
+                GameState.game = this; // 'this' IS the scene
                 this.layout = createLayout(this); // Create layout helper
 
                 this.uiLayer = this.add.container(0, 0);
@@ -970,6 +971,7 @@
                     yPos += 100; 
                 });
             },
+
             /** Stage 5: PG Check (Refactored, Renumbered) */
             runStage5_PGs: function(scene, isRelayout = false) {
                 AlfieLab.updateBanner("Aspirin/NSAIDs block COX. Which product causes Fever & Pain?", true);
@@ -1424,7 +1426,7 @@
             exportWorksheet: function() {
                 log('Export', 'Exporting mission log...');
                 
-                let textContent = GameState.worksheetData.join("\r\n"); 
+                let textContent = GameState.workskeyData.join("\r\n"); 
                 textContent += "\r\n\r\nEND OF LOG.";
                 
                 const encodedUri = encodeURI("data:text/plain;charset=utf-8," + textContent);
@@ -1618,6 +1620,7 @@
                 });
             }
         };
+        
         // --- NEW GLOBAL HTML BUTTON HANDLERS ---
         function startMission() {
             const overlay = document.getElementById('hero-overlay');
@@ -1664,7 +1667,7 @@
                     pixelArt: false,
                     antialias: true
                 },
-                resolution: window.devicePixelRatio > 1 ? 1 : 1
+                resolution: window.devicePixelRatio > 1 ? 2 : 1
             };
 
             // --- Start Game ---
