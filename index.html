@@ -6,7 +6,7 @@
     <title>HCR 240 - Lab 1: Alfi's Space Adventure</title>
     
     
-   <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.80.1/dist/phaser.min.js" crossorigin="anonymous"></script>
     
     
     
@@ -501,7 +501,1123 @@
                 color:UI.color.textSoft, align:'center'
             }).setOrigin(0.5).setDepth(6);
         }
-        
+        /**
+         * Main Phaser Scene Object
+         * FIX 3: Moved this entire object *before* the startMission() function
+         */
+        const AlfieLab = {
+            
+            // --- Phaser Core Functions ---
+            preload: function() {
+                log('AlfieLab', 'preload');
+            },
+
+            create: function() {
+                log('AlfieLab', 'create');
+                GameState.game = this; // Save scene context
+                this.layout = createLayout(this); // Create layout helper
+
+                this.uiLayer = this.add.container(0, 0);
+                this.gameplayLayer = this.add.container(0, 0).setDepth(2);
+                this.backgroundLayer = this.add.container(0, 0).setDepth(1);
+                
+                this.banner = uiBanner(this, this.layout.midX, this.layout.top + 30, "");
+                this.banner.bg.setVisible(false);
+                this.banner.text.setVisible(false);
+                this.uiLayer.add([this.banner.bg, this.banner.text]);
+                
+                // Start the game flow
+                AlfieLab.showTitleScreen();
+
+                GameState.dragLine = this.add.graphics().setDepth(7);
+                this.input.on('pointermove', (pointer) => {
+                    if (GameState.dragSource && GameState.dragLine) {
+                        const sourceNode = GameState.dragNodes.find(n => n.id === GameState.dragSource);
+                        if (!sourceNode) return;
+                        
+                        const x = sourceNode.zone.x;
+                        const y = sourceNode.zone.y;
+
+                        const curve = new Phaser.Curves.CubicBezier(
+                            new Phaser.Math.Vector2(x, y),
+                            new Phaser.Math.Vector2(x + 150, y),
+                            new Phaser.Math.Vector2(pointer.x - 150, pointer.y),
+                            new Phaser.Math.Vector2(pointer.x, pointer.y)
+                        );
+                        GameState.dragLine.clear().lineStyle(4, Phaser.Display.Color.HexStringToColor(UI.color.brand).color, 0.7);
+                        curve.draw(GameState.dragLine);
+                    }
+                });
+
+                this.scale.on('resize', () => this.relayout && this.relayout());
+            },
+            
+            relayout: function() {
+                log('Layout', 'Relayout triggered');
+                this.layout = createLayout(this); 
+                
+                this.banner.bg.setPosition(this.layout.midX, this.layout.top + 30);
+                this.banner.text.setPosition(this.layout.midX, this.layout.top + 30);
+
+                if (GameState.scene === 'Title') AlfieLab.showTitleScreen(true);
+                else if (GameState.scene === 'NameInput') AlfieLab.showNameInput(true);
+                else if (GameState.scene === 'Briefing') AlfieLab.showBriefing(true);
+                else if (GameState.scene === 'Gameplay') AlfieLab.showGameplay(GameState.currentStage, true);
+                else if (GameState.scene === 'Summary') AlfieLab.showSummary(true);
+            },
+
+            update: function(time, delta) {
+                if (GameState.scene === 'NameInput' && this.cursor) {
+                    this.cursor.setAlpha(Math.sin(time * 0.005) * 0.5 + 0.5);
+                }
+                
+                if (GameState.scene === 'Gameplay' && 
+                    (GameState.currentStage === 3 || GameState.currentStage === 4) && 
+                    this.aaMolecule && 
+                    this.aaMolecule.active &&
+                    this.aaMolecule.data) { 
+                    
+                    this.aaMolecule.y = this.aaMolecule.data.get('baseY') + Math.sin(time * 0.002) * 5;
+                }
+            },
+            
+            // --- UI Helper Functions (Refactored) ---
+            
+            updateBanner: function(text, persist = false) {
+                const scene = GameState.game;
+                if (!scene || !scene.banner) return;
+                
+                if (scene.banner.hideTimer) {
+                    scene.banner.hideTimer.remove(false);
+                }
+
+                if (!text || text === "") {
+                    scene.banner.bg.setVisible(false);
+                    scene.banner.text.setVisible(false);
+                } else {
+                    scene.banner.text.setText(text.toUpperCase());
+                    const padX=20, padY=8;
+                    const w = scene.banner.text.width + padX*2, h = scene.banner.text.height + padY*2;
+                    scene.banner.bg.getData('setSize')(w, h);
+                    
+                    scene.banner.bg.setVisible(true);
+                    scene.banner.text.setVisible(true);
+                    
+                    if (!persist) {
+                        scene.banner.hideTimer = scene.time.delayedCall(3000, () => {
+                            if (scene.banner.text.text === text.toUpperCase()) {
+                                scene.banner.bg.setVisible(false);
+                                scene.banner.text.setVisible(false);
+                            }
+                        });
+                    }
+                }
+            },
+            
+            // FIX: Use container-safe .list
+            clearUILayer: function(isRelayout = false) {
+               const scene = GameState.game;
+               if (!scene || !scene.uiLayer) return;
+
+               if (isRelayout) {
+                   const keep = new Set([scene.banner.bg, scene.banner.text]);
+                   for (const child of [...scene.uiLayer.list]) { 
+                       if (child && !keep.has(child) && !child.destroyed && typeof child.destroy === 'function') {
+                           child.destroy();
+                       }
+                   }
+               } else {
+                   scene.uiLayer.removeAll(true);
+                   scene.uiLayer.add([scene.banner.bg, scene.banner.text]);
+               }
+            },
+
+            clearGameplayLayer: function() {
+                const scene = GameState.game;
+                if (scene && scene.gameplayLayer) {
+                     scene.gameplayLayer.removeAll(true);
+                }
+            },
+
+            clearBackgroundLayer: function() {
+                const scene = GameState.game;
+                if (scene && scene.backgroundLayer) {
+                     scene.backgroundLayer.removeAll(true);
+                }
+            },
+
+            // --- Scene Flow Functions ---
+
+            /** C: Title Screen (Refactored to only show HTML overlay) */
+            showTitleScreen: function(isRelayout = false) {
+                log('Flow', 'showTitleScreen');
+                const scene = GameState.game;
+                if (!isRelayout) {
+                    GameState.scene = 'Title';
+                    GameState.stageComplete = false;
+                    AlfieLab.clearGameplayLayer();
+                    AlfieLab.clearBackgroundLayer();
+                }
+                AlfieLab.clearUILayer(isRelayout);
+                AlfieLab.updateBanner("");
+                
+                // Show the HTML overlay
+                const overlay = document.getElementById('hero-overlay');
+                if (overlay) overlay.style.display = 'flex';
+                
+                // No Phaser elements are created here
+            },
+
+            /** Get Student Name (Refactored) */
+            showNameInput: function(isRelayout = false) {
+                log('Flow', 'showNameInput');
+                const scene = GameState.game;
+                
+                // Hide HTML overlay when this scene starts
+                const overlay = document.getElementById('hero-overlay');
+                if (overlay) overlay.style.display = 'none';
+
+                if (!isRelayout) {
+                    GameState.scene = 'NameInput';
+                    GameState.studentName = "";
+                    GameState.stageComplete = false;
+                    AlfieLab.clearGameplayLayer();
+                }
+                AlfieLab.clearUILayer(isRelayout);
+                
+                AlfieLab.updateBanner("FLIGHT SURGEON'S LOG: ENTER YOUR NAME", true);
+
+                const namePrompt = uiText(scene, scene.layout.midX, scene.layout.midY - 50, "SURGEON:", UI.type.h2, UI.color.brand);
+                namePrompt.style.fontStyle = 'bold';
+
+                const nameText = uiText(scene, scene.layout.midX, scene.layout.midY, GameState.studentName.toUpperCase(), UI.type.h1, UI.color.text);
+                nameText.setColor(UI.color.text); // Ensure it's white
+
+                scene.cursor = scene.add.graphics()
+                    .fillStyle(Phaser.Display.Color.HexStringToColor(UI.color.brand).color)
+                    .fillRect(0, -22, 3, 44);
+                scene.cursor.x = nameText.x + nameText.width / 2 + 5;
+                scene.cursor.y = nameText.y;
+                
+                scene.uiLayer.add([namePrompt, nameText, scene.cursor]);
+
+                if (!isRelayout) {
+                    if(scene.input.keyboard) {
+                         scene.input.keyboard.off('keydown');
+                    }
+                    scene.input.keyboard.on('keydown', (event) => {
+                        if (GameState.scene !== 'NameInput') return;
+                        if (event.keyCode === 8) { // Backspace
+                            GameState.studentName = GameState.studentName.slice(0, -1);
+                        } else if (event.keyCode === 13 || event.keyCode === 32) { // Enter or Space
+                            if (GameState.studentName.length > 0 && event.keyCode === 32) {
+                                 GameState.studentName += " ";
+                            }
+                        } else if (event.keyCode >= 48 && event.keyCode <= 90 || event.keyCode >= 96 && event.keyCode <= 105) { // A-Z, 0-9, Numpad
+                            if (GameState.studentName.length < 20) { 
+                                GameState.studentName += event.key;
+                            }
+                        }
+
+                        nameText.setText(GameState.studentName.toUpperCase());
+                        scene.cursor.x = nameText.x - nameText.width / 2 + nameText.width + 5;
+                    });
+                }
+
+                const continueButton = uiButton(scene, scene.layout.midX, scene.layout.midY + 150, "CONFIRM IDENTITY", 'primary', () => {
+                    if (GameState.studentName.length > 0) {
+                        scene.input.keyboard.off('keydown'); 
+                        GameState.worksheetData = [`MISSION LOG: FLIGHT SURGEON ${GameState.studentName.toUpperCase()}`];
+                        AlfieLab.showBriefing();
+                    } else {
+                        AlfieLab.updateBanner("IDENTITY REQUIRED. PLEASE ENTER YOUR NAME.", false);
+                    }
+                }, 300);
+                scene.uiLayer.add([continueButton]);
+            },
+
+            /** Show Mission Briefing (Refactored) */
+            showBriefing: function(isRelayout = false) {
+                log('Flow', 'showBriefing');
+                const scene = GameState.game;
+                if (!isRelayout) {
+                    GameState.scene = 'Briefing';
+                    GameState.stageComplete = false;
+                    AlfieLab.clearGameplayLayer();
+                }
+                AlfieLab.clearUILayer(isRelayout);
+                
+                AlfieLab.updateBanner(`Welcome, Surgeon ${GameState.studentName.toUpperCase()}.`);
+
+                const title = uiText(scene, scene.layout.midX, scene.layout.midY - 150, "MISSION BRIEFING", UI.type.h1, UI.color.brand);
+                title.style.fontStyle = 'bold';
+                
+                const body = uiText(scene, scene.layout.midX, scene.layout.midY - 10, 
+                    "Alfi has been bitten by an unknown alien specimen on planet XYLOS-4.\n\n" +
+                    "His vital signs show a rapid local inflammatory response. We're detecting unknown... PAMPs.\n\n" +
+                    "Your mission is to manage the acute inflammation pathway. Identify each step and deploy the correct biological response. Your actions will be recorded in the mission log.", 
+                    UI.type.body, UI.color.textSoft);
+
+                const startButton = uiButton(scene, scene.layout.midX, scene.layout.midY + 160, "START PROCEDURE", 'primary', () => {
+                    AlfieLab.showGameplay(0);
+                }, 300);
+                
+                scene.uiLayer.add([title, body, startButton]);
+            },
+
+            /** Main Gameplay Scene (Staged) */
+            showGameplay: function(stage, isRelayout = false) {
+                log('Flow', `showGameplay stage ${stage}`);
+                if (!isRelayout) {
+                    GameState.scene = 'Gameplay';
+                    GameState.currentStage = stage;
+                    GameState.stageComplete = false; 
+                }
+                const scene = GameState.game;
+                
+                AlfieLab.clearUILayer(isRelayout);
+                if (!isRelayout) {
+                    AlfieLab.clearGameplayLayer();
+                }
+
+                switch (stage) {
+                    case 0: AlfieLab.runStage0_Recognition(scene, isRelayout); break;
+                    case 1: AlfieLab.runStage1_Activation(scene, isRelayout); break;
+                    case 2: AlfieLab.runStage2_AARelease(scene, isRelayout); break;
+                    case 3: AlfieLab.runStage3_CellSelection(scene, isRelayout); break; 
+                    case 4: AlfieLab.runStage4_DragLinkGame(scene, isRelayout); break;
+                    case 5: AlfieLab.runStage5_PGs(scene, isRelayout); break; 
+                    case 6: AlfieLab.runStage6_LTs(scene, isRelayout); break; 
+                    case 7: AlfieLab.runStage7_CardinalSigns(scene, isRelayout); break;
+                    case 8: AlfieLab.runStage8_NeutrophilArrival(scene, isRelayout); break;
+                    case 9: AlfieLab.runStage9_OxidativeBurst(scene, isRelayout); break;
+                    case 10: AlfieLab.runStage10_Resolution(scene, isRelayout); break; 
+                    case 11: AlfieLab.showSummary(isRelayout); break; 
+                }
+            },
+
+            /** Stage 0: PAMP Recognition (Refactored) */
+            runStage0_Recognition: function(scene, isRelayout = false) {
+                AlfieLab.updateBanner("STAGE 1: Alien PAMP detected! What cell recognizes it?", true);
+                
+                if (!isRelayout) {
+                    const macrophage = AlfieLab.drawCell('Macrophage', scene.layout.midX, scene.layout.midY, C_COLOR_PURPLE);
+                    scene.gameplayLayer.add(macrophage);
+                    
+                    for (let i = 0; i < 5; i++) {
+                        const pamp = scene.add.graphics()
+                            .fillStyle(C_COLOR_YELLOW, 1)
+                            .lineStyle(1, 0xaaaa00, 1) 
+                            .fillPoints([
+                                new Phaser.Geom.Point(0, -15), new Phaser.Geom.Point(10, -5), 
+                                new Phaser.Geom.Point(15, 10), new Phaser.Geom.Point(0, 5),  
+                                new Phaser.Geom.Point(-15, 10), new Phaser.Geom.Point(-10, -5) 
+                            ], true)
+                            .strokePath()
+                            .setPosition(
+                                scene.layout.midX + Phaser.Math.Between(-100, 100),
+                                scene.layout.midY + Phaser.Math.Between(-100, 100)
+                            )
+                            .setDepth(2);
+                        scene.gameplayLayer.add(pamp);
+                    }
+                }
+
+                const btn1 = uiButton(scene, scene.layout.midX, scene.layout.bottom - 150, "Macrophage / Dendritic Cell", 'secondary', () => {
+                    AlfieLab.handleChoice(true, "PAMP Recognition: Macrophage (Innate)");
+                }, 450); 
+                const btn2 = uiButton(scene, scene.layout.midX, scene.layout.bottom - 80, "T-Cell (Adaptive)", 'secondary', () => {
+                    AlfieLab.handleChoice(false, null, "Incorrect. T-Cells are part of the *adaptive* response and need presentation.");
+                }, 450); 
+                
+                scene.uiLayer.add([btn1, btn2]);
+            },
+
+            /** Stage 1: TLR Activation (Refactored) */
+            runStage1_Activation: function(scene, isRelayout = false) {
+                AlfieLab.updateBanner("The Macrophage is using its TLRs! What is the 'master switch' it activates?", true);
+
+                if (!isRelayout) {
+                    const macrophage = AlfieLab.drawCell('Macrophage', scene.layout.midX, scene.layout.midY - 50, C_COLOR_PURPLE, true);
+                    scene.gameplayLayer.add(macrophage);
+
+                    const tlr4 = scene.add.graphics()
+                        .fillStyle(C_COLOR_BLUE, 1)
+                        .lineStyle(2, 0x1a72a8, 1)
+                        .fillCircle(0, 0, 15).fillCircle(10, -5, 10).fillCircle(-10, -5, 10)
+                        .strokeCircle(0,0,15).strokeCircle(10,-5,10).strokeCircle(-10,-5,10)
+                        .setPosition(macrophage.x + 50, macrophage.y)
+                        .setDepth(2); 
+
+                    const tlrGlow = scene.add.graphics()
+                        .fillStyle(C_COLOR_YELLOW, 0.4)
+                        .fillCircle(0, 0, 25)
+                        .setPosition(tlr4.x, tlr4.y)
+                        .setAlpha(0)
+                        .setDepth(2); 
+                    
+                    scene.tweens.add({
+                        targets: tlrGlow, alpha: 0.8, scale: 1.2, duration: 500, yoyo: true, repeat: -1
+                    });
+
+                    const tlrText = uiText(scene, tlr4.x, tlr4.y - 45, "TLR-4 (CD14)", UI.type.small, UI.color.textSoft);
+                    scene.gameplayLayer.add([tlrGlow, tlr4, tlrText]);
+                }
+
+                const btn1 = uiButton(scene, scene.layout.midX - 200, scene.layout.bottom - 100, "NF-KB", 'secondary', () => {
+                    AlfieLab.handleChoice(true, "Master Switch: NF-KB");
+                }, 260);
+                const btn2 = uiButton(scene, scene.layout.midX + 200, scene.layout.bottom - 100, "PGE2", 'secondary', () => {
+                    AlfieLab.handleChoice(false, null, "Incorrect. PGE2 is a prostaglandin, produced later.");
+                }, 260);
+                const btn3 = uiButton(scene, scene.layout.midX, scene.layout.bottom - 30, "LTB4", 'secondary', () => {
+                    AlfieLab.handleChoice(false, null, "Incorrect. LTB4 is a leukotriene, produced later.");
+                }, 260);
+                
+                scene.uiLayer.add([btn1, btn2, btn3]);
+            },
+
+            /** Stage 2: AA Release (Refactored + Bug Fix) */
+            runStage2_AARelease: function(scene, isRelayout = false) {
+                // FIX: Sanitized string
+                AlfieLab.updateBanner("Triggers (Injury, C5a, IgE) cause Ca2+ influx, activating...", true);
+                
+                if (!isRelayout) {
+                    AlfieLab.drawPhospholipidBilayer(scene, scene.layout.midX, scene.layout.midY - 50);
+                }
+
+                const drugText = uiText(scene, scene.layout.midX, scene.layout.bottom - 220, "BLOCKED BY: Glucocorticoids (via Lipocortin)", UI.type.small, UI.color.textSoft);
+                drugText.style.fontStyle = 'bold';
+
+                const btn1 = uiButton(scene, scene.layout.midX, scene.layout.bottom - 150, "Phospholipase A2 (PLA2)", 'secondary', () => {
+                    if (GameState.stageComplete) return;
+                    GameState.stageComplete = true;
+
+                    AlfieLab.animateAARelease(scene);
+                    AlfieLab.handleChoice(true, "AA Release: Phospholipase A2");
+                }, 400);
+                const btn2 = uiButton(scene, scene.layout.midX, scene.layout.bottom - 80, "Cyclooxygenase", 'secondary', () => {
+                    AlfieLab.handleChoice(false, null, "Incorrect. That enzyme *metabolizes* AA, it doesn't release it.");
+                }, 400);
+                
+                scene.uiLayer.add([drugText, btn1, btn2]);
+            },
+
+            /** Stage 3: Cell Selection (Refactored) */
+            runStage3_CellSelection: function(scene, isRelayout = false) {
+                AlfieLab.updateBanner("AA is free in the cytosol! Which cells metabolize it?", true);
+
+                if (!isRelayout) {
+                    const aa = scene.add.graphics()
+                        .lineStyle(4, C_COLOR_YELLOW, 1)
+                        .moveTo(0, 0).lineTo(5, 5).lineTo(10, 0).lineTo(15, 5).lineTo(20, 0).lineTo(25, 5).lineTo(30, 0)
+                        .setPosition(scene.layout.midX, scene.layout.midY - 100);
+                    aa.data = new Phaser.Data.DataManager(aa); // Add data
+                    aa.data.set('baseY', scene.layout.midY - 100);
+                    scene.aaMolecule = aa; // Set scene reference
+                    aa.setDepth(3); // Above bilayer
+
+                    const aaText = uiLabel(scene, scene.layout.midX, scene.layout.midY - 130, "Arachidonic Acid");
+                    scene.gameplayLayer.add([aa, aaText]);
+
+                    const mac = AlfieLab.drawCell('Macrophage', scene.layout.midX - 150, scene.layout.midY + 50, C_COLOR_PURPLE);
+                    const mast = AlfieLab.drawCell('Mast Cell', scene.layout.midX + 150, scene.layout.midY + 50, C_COLOR_RED);
+                    const neut = AlfieLab.drawCell('Neutrophil', scene.layout.midX - 150, scene.layout.midY + 200, C_COLOR_LIGHT_GREY_GFX);
+                    const tcell = AlfieLab.drawCell('T-Cell', scene.layout.midX + 150, scene.layout.midY + 200, C_COLOR_BLUE);
+                    scene.gameplayLayer.add([mac, mast, neut, tcell]);
+                }
+
+                const btn1 = uiButton(scene, scene.layout.midX, scene.layout.bottom - 130, "Macrophage & Mast Cell", 'secondary', () => {
+                    AlfieLab.handleChoice(true, "AA Metabolism: Macrophage & Mast Cell");
+                }, 450);
+                const btn2 = uiButton(scene, scene.layout.midX, scene.layout.bottom - 60, "Neutrophil & T-Cell", 'secondary', () => {
+                    AlfieLab.handleChoice(false, null, "Incorrect. Neutrophils use AA products, but don't create them this way.");
+                }, 450);
+                scene.uiLayer.add([btn1, btn2]);
+            },
+
+            /** Stage 4: NEW Drag-to-Link Pathway Game */
+            runStage4_DragLinkGame: function(scene, isRelayout = false) {
+                AlfieLab.updateBanner("Drag the enzymes to link them to their products/effects.", true);
+                
+                if (!isRelayout) {
+                    GameState.linkCount = 0;
+                    GameState.dragNodes = [];
+                    GameState.dragTargets = [];
+                    GameState.permanentLines = scene.add.graphics().setDepth(7);
+                }
+                
+                const coxNode = uiDraggable(scene, scene.layout.P + 180, scene.layout.midY - 100, "Cyclooxygenase (COX)", 'COX', 300);
+                const loxNode = uiDraggable(scene, scene.layout.P + 180, scene.layout.midY + 100, "5-Lipoxygenase (5-LOX)", 'LOX', 300);
+                scene.uiLayer.add([coxNode, loxNode]); 
+                if (!isRelayout) GameState.dragNodes.push(coxNode, loxNode);
+
+                // FIX: Sanitized all special characters
+                const targets = [
+                    { id: 'PG',   label: 'PGE2 (fever, pain, vasodilation)' },
+                    { id: 'PGI',  label: 'PGI2 (vasodilation, decreased platelet aggregation)' },
+                    { id: 'TXA2', label: 'TXA2 (platelet aggregation, vasoconstriction)' },
+                    { id: 'PGF',  label: 'PGD2/PGF2a (bronchoconstriction)' },
+                    { id: 'LTB4', label: 'LTB4 (neutrophil chemotaxis)' },
+                    { id: 'LTCDE',label: 'LTC4/D4/E4 (bronchospasm, increased vascular permeability)' }
+                ];
+                
+                let yPos = scene.layout.P + 80;
+                targets.forEach((target) => {
+                    const targetNode = uiDropTarget(scene, scene.layout.W - scene.layout.P - 200, yPos, target.label, target.id, 360);
+                    scene.gameplayLayer.add([targetNode.rect, targetNode.txt, targetNode.zone]);
+                    if (!isRelayout) GameState.dragTargets.push(targetNode);
+                    yPos += 100; 
+                });
+            },
+            /** Stage 5: PG Check (Refactored, Renumbered) */
+            runStage5_PGs: function(scene, isRelayout = false) {
+                AlfieLab.updateBanner("Aspirin/NSAIDs block COX. Which product causes Fever & Pain?", true);
+                
+                const btn1 = uiButton(scene, scene.layout.midX, scene.layout.midY - 90, "PGE2", 'secondary', () => {
+                    AlfieLab.handleChoice(true, "PG Pathway: PGE2 (Fever/Pain/Vasodilation)");
+                }, 350);
+                const btn2 = uiButton(scene, scene.layout.midX, scene.layout.midY, "PGI2", 'secondary', () => {
+                    AlfieLab.handleChoice(false, null, "Incorrect. PGI2 is for vasodilation, but PGE2 is the key mediator of fever and pain.");
+                }, 350);
+                const btn3 = uiButton(scene, scene.layout.midX, scene.layout.midY + 70, "TXA2", 'secondary', () => {
+                    AlfieLab.handleChoice(false, null, "Incorrect. TXA2 is for platelet aggregation and vasoconstriction.");
+                }, 350);
+                
+                scene.uiLayer.add([btn1, btn2, btn3]);
+            },
+
+            /** Stage 6: LT Check (Refactored, Renumbered) */
+            runStage6_LTs: function(scene, isRelayout = false) {
+                AlfieLab.updateBanner("Montelukast blocks CysLT1 receptors. Which LTs cause Bronchospasm?", true);
+
+                if (!isRelayout) {
+                    const airway = scene.add.graphics({ x: scene.layout.midX, y: scene.layout.midY - 50 });
+                    airway.lineStyle(4, C_COLOR_LIGHT_GREY_GFX, 1).strokeCircle(0, 0, 50);
+                    const airwayText = uiLabel(scene, airway.x, airway.y + 70, "Airway");
+                    scene.gameplayLayer.add([airway, airwayText]);
+                    scene.tweens.add({
+                        targets: airway,
+                        scale: 0.7,
+                        duration: 700,
+                        yoyo: true,
+                        repeat: -1,
+                        ease: 'Sine.easeInOut'
+                    });
+                }
+
+                const btn1 = uiButton(scene, scene.layout.midX, scene.layout.midY + 100, "LTC4/LTD4/LTE4", 'secondary', () => {
+                    AlfieLab.handleChoice(true, "LT Pathway: LTC/D/E (Bronchospasm)");
+                }, 350);
+                const btn2 = uiButton(scene, scene.layout.midX, scene.layout.midY + 170, "LTB4", 'secondary', () => {
+                    AlfieLab.handleChoice(false, null, "Incorrect. LTB4 is the key neutrophil chemoattractant.");
+                }, 350);
+                
+                scene.uiLayer.add([btn1, btn2]);
+            },
+
+            /** Stage 7: Cardinal Signs (Refactored, Renumbered) */
+            runStage7_CardinalSigns: function(scene, isRelayout = false) {
+                AlfieLab.updateBanner("Alfi's bite area is RED (Rubor) and WARM (Calor). What causes this vasodilation?", true);
+
+                if (!isRelayout) {
+                    const bite = scene.add.graphics()
+                        .fillStyle(C_COLOR_RED, 0.5)
+                        .fillCircle(scene.layout.midX, scene.layout.midY, 100);
+                    const glow = scene.add.graphics()
+                        .fillStyle(C_COLOR_RED, 0.2)
+                        .fillCircle(scene.layout.midX, scene.layout.midY, 120);
+                    scene.tweens.add({
+                        targets: glow, scale: 1.2, alpha: 0.1, duration: 800, yoyo: true, repeat: -1
+                    });
+                    scene.gameplayLayer.add([bite, glow]);
+                    
+                    const mediators = uiText(scene, scene.layout.midX, scene.layout.midY, "PGE2, PGI2, Histamine, Bradykinin", UI.type.small, UI.color.textSoft);
+                    mediators.style.fontStyle = 'bold';
+                    mediators.setAlpha(0);
+                    scene.tweens.add({targets: mediators, alpha: 1, duration: 700, delay: 300});
+                    scene.gameplayLayer.add(mediators);
+                }
+
+
+                const btn1 = uiButton(scene, scene.layout.midX, scene.layout.bottom - 150, "Histamine, PGs, Bradykinin", 'secondary', () => {
+                    AlfieLab.handleChoice(true, "Cardinal Signs (Rubor/Calor): Histamine, PGs, Bradykinin");
+                }, 450);
+                const btn2 = uiButton(scene, scene.layout.midX, scene.layout.bottom - 80, "LTB4 and IL-8", 'secondary', () => {
+                    AlfieLab.handleChoice(false, null, "Incorrect. LTB4 and IL-8 are primarily for neutrophil chemotaxis.");
+                }, 450);
+                
+                scene.uiLayer.add([btn1, btn2]);
+            },
+
+            /** Stage 8: Neutrophil Arrival Minigame (Refactored, Renumbered) */
+            runStage8_NeutrophilArrival: function(scene, isRelayout = false) {
+                if (!isRelayout) {
+                    GameState.neutrophilStep = 0; 
+                    
+                    const vesselWall = scene.add.graphics()
+                        .fillStyle(C_COLOR_BLUE, 0.3)
+                        .lineStyle(2, 0x1a72a8, 1) 
+                        .fillRect(0, scene.layout.midY, SAFE_W, 100)
+                        .strokeRect(0, scene.layout.midY, SAFE_W, 100);
+                    const wallText = uiLabel(scene, scene.layout.midX, scene.layout.midY - 20, "Postcapillary Venule");
+                    scene.gameplayLayer.add([vesselWall, wallText]);
+
+                    for (let i = 0; i < 5; i++) {
+                        const pad = scene.add.graphics()
+                            .fillStyle(C_COLOR_YELLOW, 0.5)
+                            .fillCircle(scene.layout.P + 200 + i * 150, scene.layout.midY, 10);
+                        scene.gameplayLayer.add(pad);
+                    }
+                    const selectinText = uiLabel(scene, scene.layout.P + 250, scene.layout.midY - 20, "Selectins (P/E)");
+                    scene.gameplayLayer.add(selectinText);
+
+                    const neutrophil = AlfieLab.drawCell('Neutrophil', scene.layout.P + 100, scene.layout.midY + 50, C_COLOR_LIGHT_GREY_GFX);
+                    scene.gameplayLayer.add(neutrophil);
+                    GameState.neutrophil = neutrophil; 
+                }
+
+                AlfieLab.runNeutrophilSubStep(GameState.neutrophilStep); 
+            },
+
+            /** Helper for the multi-step Neutrophil game (Refactored) */
+            runNeutrophilSubStep: function(step) {
+                const scene = GameState.game;
+                const neutrophil = GameState.neutrophil;
+                AlfieLab.clearUILayer(true); // Must destroy buttons on sub-step
+                GameState.stageComplete = false; // Reset guard
+
+                GameState.neutrophilStep = step;
+                let bannerText = "";
+                let choices = [];
+
+                switch(step) {
+                    case 0: // Step 1: Rolling
+                        bannerText = "STEP 1: The neutrophil is ROLLING. What 'speed bumps' is it binding to?";
+                        choices = [
+                            { text: "Selectins (P-selectin, E-selectin)", correct: true, log: "Neutrophil Step 1 (Rolling): Selectins" },
+                            { text: "Integrins", correct: false, msg: "Incorrect. Integrins are for firm adhesion, not rolling." },
+                        ];
+                        scene.tweens.add({
+                            targets: neutrophil, 
+                            x: scene.layout.midX - 150, 
+                            duration: 1500, 
+                            ease: 'Bounce.easeOut' // Use bounce ease
+                        });
+                        break;
+                    
+                    case 1: // Step 2: Adhesion
+                        bannerText = "STEP 2: It's stopped! What binds ICAM-1 for firm ADHESION?";
+                        choices = [
+                            { text: "Integrins", correct: true, log: "Neutrophil Step 2 (Adhesion): Integrins" },
+                            { text: "Selectins", correct: false, msg: "Incorrect. Selectins were for rolling." },
+                        ];
+                        const icam = uiLabel(scene, scene.layout.midX, scene.layout.midY - 20, "ICAM-1");
+                        const integrinText = uiLabel(scene, scene.layout.midX, scene.layout.midY + 100, "Integrins activated by C5a & LTB4");
+                        integrinText.setAlpha(0).setDepth(6);
+                        scene.gameplayLayer.add([icam, integrinText]);
+                        scene.tweens.add({ targets: neutrophil, x: scene.layout.midX, duration: 1000, ease: 'Power1' });
+                        scene.tweens.add({ targets: integrinText, alpha: 1, duration: 500, delay: 1000 });
+                        break;
+
+                    case 2: // Step 3: Transmigration
+                        bannerText = "STEP 3: It's squeezing through (Transmigration)! What chemical is attracting it (CHEMOTAXIS)?";
+                        choices = [
+                            { text: "LTB4, C5a, IL-8", correct: true, log: "Neutrophil Step 3 (Chemotaxis): LTB4, C5a, IL-8" },
+                            { text: "PGE2", correct: false, msg: "Incorrect. PGE2 is for pain and fever." },
+                        ];
+                        const pecam = uiLabel(scene, scene.layout.midX + 10, scene.layout.midY + 50, "PECAM-1");
+                        scene.gameplayLayer.add(pecam);
+                        scene.tweens.add({
+                            targets: neutrophil, y: scene.layout.midY + 150, duration: 1000, ease: 'Power1'
+                        });
+                        break;
+
+                    case 3: // Step 4: Phagocytosis
+                        bannerText = "STEP 4: It found the pathogen! What molecules 'opsonize' (coat) it for PHAGOCYTOSIS?";
+                        choices = [
+                            { text: "IgG and C3b", correct: true, log: "Neutrophil Step 4 (Phagocytosis): Opsonins IgG, C3b" },
+                            { text: "MPO", correct: false, msg: "Incorrect. MPO is an enzyme used *after* phagocytosis." }
+                        ];
+                        const pathogen = scene.add.graphics()
+                            .fillStyle(C_COLOR_YELLOW, 1).lineStyle(1, 0xaaaa00, 1)
+                            .fillPoints([ new Phaser.Geom.Point(0, -15), new Phaser.Geom.Point(10, -5), new Phaser.Geom.Point(15, 10), new Phaser.Geom.Point(0, 5), new Phaser.Geom.Point(-15, 10), new Phaser.Geom.Point(-10, -5) ], true)
+                            .strokePath()
+                            .setPosition(scene.layout.midX + 150, scene.layout.midY + 150)
+                            .setDepth(2);
+                        scene.gameplayLayer.add(pathogen);
+                        scene.tweens.add({
+                            targets: neutrophil, x: scene.layout.midX + 100, duration: 1000
+                        });
+                        break;
+                    
+                    case 4: // Done
+                        AlfieLab.showGameplay(GameState.currentStage + 1);
+                        return;
+                }
+
+                AlfieLab.updateBanner(bannerText, true);
+                let yPos = scene.layout.bottom - 120; 
+                choices.forEach(choice => {
+                    const btn = uiButton(scene, scene.layout.midX, yPos, choice.text, 'secondary', () => {
+                        AlfieLab.handleChoice(choice.correct, choice.log, choice.msg, () => {
+                            if (choice.correct) {
+                                AlfieLab.runNeutrophilSubStep(GameState.neutrophilStep + 1);
+                            }
+                        });
+                    }, 500); 
+                    scene.uiLayer.add([btn]);
+                    yPos += (UI.button.minH + 10); 
+                });
+            },
+
+            /** Stage 9: Oxidative Burst Minigame (Refactored, Renumbered) */
+            runStage9_OxidativeBurst: function(scene, isRelayout = false) {
+                if (!isRelayout) {
+                    GameState.burstStep = 0; 
+                    AlfieLab.clearGameplayLayer();
+
+                    const pathogen = scene.add.graphics()
+                        .fillStyle(C_COLOR_YELLOW, 1).lineStyle(2, 0xaaaa00, 1)
+                        .fillPoints([ new Phaser.Geom.Point(0, -50), new Phaser.Geom.Point(40, -10), new Phaser.Geom.Point(60, 40), new Phaser.Geom.Point(0, 20), new Phaser.Geom.Point(-60, 40), new Phaser.Geom.Point(-40, -10) ], true)
+                        .strokePath()
+                        .setPosition(scene.layout.midX, scene.layout.midY)
+                        .setDepth(2);
+                    scene.gameplayLayer.add(pathogen);
+                    GameState.pathogen = pathogen;
+                }
+                AlfieLab.updateBanner("STEP 5: Oxidative Burst! Activate the enzymes IN ORDER to create bleach.", true);
+
+                const reactionText = uiText(scene, scene.layout.midX, scene.layout.midY - 150, "O2 -> ???", UI.type.h1, UI.color.text);
+                reactionText.style.fontStyle = 'bold';
+                GameState.reactionText = reactionText;
+
+                const btn1 = uiButton(scene, scene.layout.midX, scene.layout.bottom - 210, "NADPH Oxidase", 'secondary', () => {
+                    AlfieLab.handleBurstClick(0, "O2-");
+                }, 400);
+                const btn2 = uiButton(scene, scene.layout.midX, scene.layout.bottom - 140, "Superoxide Dismutase (SOD)", 'secondary', () => {
+                    AlfieLab.handleBurstClick(1, "H2O2");
+                }, 400);
+                const btn3 = uiButton(scene, scene.layout.midX, scene.layout.bottom - 70, "Myeloperoxidase (MPO)", 'secondary', () => {
+                    AlfieLab.handleBurstClick(2, "HOCl (Bleach!)");
+                }, 400);
+                
+                scene.uiLayer.add([reactionText, btn1, btn2, btn3]);
+            },
+
+            /** Stage 10: Resolution (Refactored, Renumbered) */
+            runStage10_Resolution: function(scene, isRelayout = false) {
+                AlfieLab.clearGameplayLayer();
+                // USMLE Content: Mention Lipoxins
+                AlfieLab.updateBanner("STEP 7: Resolution. Lipoxins (anti-inflammatory) signal for cleanup. What cell arrives?", true);
+
+                if (!isRelayout) {
+                    const macrophage = AlfieLab.drawCell('Macrophage (M2)', scene.layout.midX, scene.layout.midY, C_COLOR_PURPLE);
+                    scene.gameplayLayer.add(macrophage);
+                }
+
+                const btn1 = uiButton(scene, scene.layout.midX, scene.layout.bottom - 130, "Macrophage", 'secondary', () => {
+                    AlfieLab.handleChoice(true, "Resolution: Macrophage (M2)");
+                }, 350);
+                const btn2 = uiButton(scene, scene.layout.midX, scene.layout.bottom - 60, "Neutrophil", 'secondary', () => {
+                    AlfieLab.handleChoice(false, null, "Incorrect. Neutrophils undergo apoptosis; they don't clean up.");
+                }, 350);
+                
+                scene.uiLayer.add([btn1, btn2]);
+            },
+
+            /** Final Summary Screen (Refactored) */
+            showSummary: function(isRelayout = false) {
+                log('Flow', 'showSummary');
+                const scene = GameState.game;
+                if (!isRelayout) {
+                    GameState.scene = 'Summary';
+                    GameState.stageComplete = false;
+                    AlfieLab.clearGameplayLayer();
+                    AlfieLab.clearBackgroundLayer();
+                }
+                AlfieLab.clearUILayer(isRelayout);
+                AlfieLab.updateBanner("");
+
+                const title = uiText(scene, scene.layout.midX, scene.layout.P + 50, "MISSION COMPLETE", UI.type.h1, '#' + C_COLOR_GREEN.toString(16));
+                title.style.fontStyle = 'bold';
+
+                const congrats = uiText(scene, scene.layout.midX, scene.layout.P + 110, `Good work, Surgeon ${GameState.studentName.toUpperCase()}. Alfi is stable.`, UI.type.h2, UI.color.text);
+                congrats.style.fontStyle = 'bold';
+
+                const logHeader = uiText(scene, scene.layout.midX, scene.layout.midY - 100, "FLIGHT SURGEON'S LOG:", UI.type.h2, UI.color.brand);
+                logHeader.style.fontStyle = 'bold';
+                
+                const logBox = scene.add.graphics()
+                    .lineStyle(2, Phaser.Display.Color.HexStringToColor(UI.color.brand).color, 0.5)
+                    .strokeRect(scene.layout.midX - 300, scene.layout.midY - 70, 600, 200);
+                logBox.setDepth(5);
+
+                const logText = uiText(scene, scene.layout.midX, scene.layout.midY + 30, GameState.worksheetData.join('\n'), UI.type.small, UI.color.textSoft);
+                
+                scene.uiLayer.add([title, congrats, logHeader, logBox, logText]);
+
+                const exportButton = uiButton(scene, scene.layout.midX, scene.layout.bottom - 130, "Export Mission Log (.txt)", 'primary', () => {
+                    AlfieLab.exportWorksheet();
+                }, 350);
+                
+                const restartButton = uiButton(scene, scene.layout.midX, scene.layout.bottom - 60, "Run New Simulation", 'secondary', () => {
+                    AlfieLab.showTitleScreen();
+                }, 350);
+                
+                scene.uiLayer.add([exportButton, restartButton]);
+            },
+            
+            // Helper for stacking UI elements
+            placeStackCentered: function(scene, items, startY, gap) {
+                 let y = startY; 
+                 items.forEach(item => { 
+                     // item is a uiChoice object {rect, txt, zone}
+                     item.rect.setPosition(scene.layout.midX, y);
+                     item.txt.setPosition(scene.layout.midX, y);
+                     item.zone.setPosition(scene.layout.midX, y);
+                     y += item.rect.displayHeight + gap; 
+                 });
+            },
+
+            // --- Game Logic Handlers ---
+
+            /** Handles correct/incorrect choices */
+            handleChoice: function(isCorrect, logEntry, incorrectMsg = "Incorrect. Try again, Surgeon.", correctCallback = null) {
+                if (GameState.stageComplete) return; 
+
+                if (isCorrect) {
+                    GameState.stageComplete = true; 
+                    log('Game', `Correct choice. Log: ${logEntry}`);
+                    if (logEntry) GameState.worksheetData.push(logEntry); 
+                    
+                    AlfieLab.playSuccess(true);
+                    
+                    if (correctCallback) {
+                        correctCallback();
+                    } else {
+                        GameState.game.time.delayedCall(500, () => {
+                            AlfieLab.showGameplay(GameState.currentStage + 1);
+                        });
+                    }
+                } else {
+                    log('Game', 'Incorrect choice.');
+                    AlfieLab.updateBanner(incorrectMsg, true); 
+                    AlfieLab.playSuccess(false);
+                    GameState.game.time.delayedCall(2000, () => {
+                         const originalBanner = AlfieLab.getBannerTextForStage(GameState.currentStage);
+                         AlfieLab.updateBanner(originalBanner, true);
+                    });
+                }
+            },
+
+            /** FIX: Moved function to AlfieLab scope */
+            handleDragLink: function(sourceId, target) {
+                const scene = GameState.game;
+                if (target.linked) return; 
+
+                const correctLinks = {
+                    'COX': ['PG', 'PGI', 'TXA2', 'PGF'],
+                    'LOX': ['LTB4', 'LTCDE']
+                };
+                const totalLinks = 6;
+
+                if (sourceId && correctLinks[sourceId] && correctLinks[sourceId].includes(target.id)) {
+                    log('DragGame', `Correct link: ${sourceId} -> ${target.id}`);
+                    AlfieLab.playSuccess(true);
+                    target.setSuccess(); 
+                    
+                    const sourceNode = GameState.dragNodes.find(n => n.id === sourceId);
+                    const curve = new Phaser.Curves.CubicBezier(
+                        new Phaser.Math.Vector2(sourceNode.zone.x, sourceNode.zone.y),
+                        new Phaser.Math.Vector2(sourceNode.zone.x + 150, sourceNode.zone.y),
+                        new Phaser.Math.Vector2(target.zone.x - 150, target.zone.y),
+                        new Phaser.Math.Vector2(target.zone.x, target.zone.y)
+                    );
+                    GameState.permanentLines.lineStyle(4, C_COLOR_GREEN, 1.0);
+                    curve.draw(GameState.permanentLines);
+
+                    GameState.linkCount++;
+                    if (GameState.linkCount >= totalLinks) {
+                        if (GameState.stageComplete) return;
+                        GameState.stageComplete = true;
+                        AlfieLab.updateBanner("All pathways mapped!", false);
+                        GameState.worksheetData.push("AA Pathways: COX/LOX Mapped");
+                        
+                        const summary = uiText(scene, scene.layout.midX, scene.layout.midY, 
+                            "NSAIDs block COX.\nZileuton blocks 5-LOX.\nMontelukast blocks CysLT1.", 
+                            UI.type.body, UI.color.text);
+                        summary.setDepth(2000).setBackgroundColor(UI.color.bg).setPadding(20);
+                        scene.uiLayer.add(summary);
+
+                        scene.time.delayedCall(3500, () => AlfieLab.showGameplay(GameState.currentStage + 1));
+                    }
+                } else {
+                    log('DragGame', `Incorrect link: ${sourceId} -> ${target.id}`);
+                    AlfieLab.playSuccess(false);
+                    target.shake();
+                }
+            },
+
+            /** FIX: Moved function to AlfieLab scope */
+            handleBurstClick: function(stepClicked, product) {
+                const scene = GameState.game;
+                if (GameState.stageComplete) return;
+                if (stepClicked === GameState.burstStep) {
+                    AlfieLab.playSuccess(true);
+                    GameState.burstStep++;
+                    let newText = "";
+                    let log = "";
+
+                    if (stepClicked === 0) {
+                        newText = "O2 -> O2- -> ???";
+                        log = "Oxidative Burst 1: NADPH Oxidase -> O2-";
+                    } else if (stepClicked === 1) {
+                        newText = "O2 -> O2- -> H2O2 -> ???";
+                        log = "Oxidative Burst 2: SOD -> H2O2";
+                    } else if (stepClicked === 2) {
+                        newText = "O2 -> O2- -> H2O2 -> HOCl!";
+                        log = "Oxidative Burst 3: MPO -> HOCl";
+                        AlfieLab.updateBanner("TARGET DESTROYED!", false);
+                        GameState.stageComplete = true; // Lock input
+                        
+                        scene.tweens.add({
+                            targets: GameState.pathogen,
+                            scale: 0, alpha: 0, angle: 360, duration: 1000,
+                            onComplete: () => {
+                                AlfieLab.showGameplay(GameState.currentStage + 1);
+                            }
+                        });
+                    }
+                    
+                    if (GameState.reactionText) GameState.reactionText.setText(newText);
+                    GameState.worksheetData.push(log);
+
+                } else {
+                    AlfieLab.playSuccess(false);
+                    AlfieLab.updateBanner("Incorrect order! Try again.", true);
+                }
+            },
+            
+            /** Gets the banner text for the current stage (to restore after error) */
+            getBannerTextForStage: function(stage) {
+                // FIX: Sanitized strings
+                switch (stage) {
+                    case 0: return "STAGE 1: Alien PAMP detected! What cell recognizes it?";
+                    case 1: return "The Macrophage is using its TLRs! What is the 'master switch' it activates?";
+                    case 2: return "Triggers (Injury, C5a, IgE) cause Ca2+ influx, activating...";
+                    case 3: return "AA is free in the cytosol! Which cells metabolize it?";
+                    case 4: return "Drag the enzymes to link them to their products/effects.";
+                    case 5: return "Aspirin/NSAIDs block COX. Which product causes Fever & Pain?";
+                    case 6: return "Montelukast blocks CysLT1 receptors. Which LTs cause Bronchospasm?";
+                    case 7: return "Alfi's bite area is RED (Rubor) and WARM (Calor). What causes this vasodilation?";
+                    case 8: 
+                        const steps = ["ROLLING", "ADHESION", "TRANSMIGRATION", "PHAGOCYTOSIS"];
+                        return `STEP ${GameState.neutrophilStep + 1}: ${steps[GameState.neutrophilStep]}...`;
+                    case 9: return "STEP 5: Oxidative Burst! Activate the enzymes IN ORDER to create bleach.";
+                    case 10: return "STEP 7: Resolution. Lipoxins (anti-inflammatory) signal for cleanup. What cell arrives?";
+                    default: return "";
+                }
+            },
+            
+            /** Exports the worksheetData array as a .txt file */
+            exportWorksheet: function() {
+                log('Export', 'Exporting mission log...');
+                
+                let textContent = GameState.worksheetData.join("\r\n"); 
+                textContent += "\r\n\r\nEND OF LOG.";
+                
+                const encodedUri = encodeURI("data:text/plain;charset=utf-8," + textContent);
+                const link = document.createElement("a");
+                link.setAttribute("href", encodedUri);
+                link.setAttribute("download", `Alfi_Mission_Log_${GameState.studentName.toUpperCase()}.txt`);
+                document.body.appendChild(link);
+                
+                link.click();
+                document.body.removeChild(link);
+                
+                AlfieLab.updateBanner("Mission Log Exported!", false);
+            },
+
+            /** Visual/Audio feedback for success/fail */
+            playSuccess: function(isSuccess) {
+                const scene = GameState.game;
+                const color = isSuccess ? C_COLOR_GREEN : C_COLOR_RED;
+                
+                const flash = scene.add.graphics()
+                    .lineStyle(10, color, 0.8)
+                    .strokeRect(0, 0, scene.layout.W, scene.layout.H)
+                    .setDepth(2000);
+                
+                scene.tweens.add({
+                    targets: flash,
+                    alpha: 0,
+                    duration: 400,
+                    onComplete: () => flash.destroy()
+                });
+            },
+            
+            // --- Bespoke Graphics Functions (Refactored) ---
+            
+            /** E: Draws a generic cell (Refactored) */
+            drawCell: function(name, x, y, color, isGlowing = false) {
+                const container = GameState.game.add.container(x, y);
+                // FIX: Use integer color
+                const base = Phaser.Display.Color.ValueToColor(color);
+                base.darken(20);
+                const strokeInt = Phaser.Display.Color.GetColor(base.r, base.g, base.b);
+
+                const body = GameState.game.add.graphics()
+                    .fillStyle(color, 1)
+                    .lineStyle(2, strokeInt, 1)
+                    .fillCircle(0, 0, 50)
+                    .strokeCircle(0, 0, 50);
+                const nucleus = GameState.game.add.graphics()
+                    .fillStyle(Phaser.Display.Color.ValueToColor(color).darken(30).color, 0.5)
+                    .fillCircle(Phaser.Math.Between(-10, 10), Phaser.Math.Between(-10, 10), 20);
+                
+                const text = uiLabel(GameState.game, 0, 75, name);
+                
+                container.add([body, nucleus, text]).setDepth(2);
+
+                if (isGlowing) {
+                    const glow = GameState.game.add.graphics()
+                        .fillStyle(C_COLOR_YELLOW, 0.3)
+                        .fillCircle(0, 0, 60);
+                    container.addAt(glow, 0);
+                    GameState.game.tweens.add({
+                        targets: glow,
+                        scale: 1.2,
+                        alpha: 0.5,
+                        duration: 700,
+                        yoyo: true,
+                        repeat: -1
+                    });
+                }
+                return container;
+            },
+
+            /** Draws a "target" box for the mini-game (Refactored) */
+            drawTarget: function(name, x, y) {
+                const container = GameState.game.add.container(x, y);
+                const box = GameState.game.add.graphics()
+                    .lineStyle(2, Phaser.Display.Color.HexStringToColor(UI.color.textSoft).color, 0.5)
+                    .strokeRect(-150, -50, 300, 100);
+                
+                const text = uiText(GameState.game, 0, 0, name, UI.type.small, UI.color.textSoft);
+                
+                container.add([box, text]).setDepth(5);
+                container.setSize(300, 100);
+                container.setName(name); // Set name for lookup
+                return container;
+            },
+
+            /** Draws a phospholipid bilayer (Refactored) */
+            drawPhospholipidBilayer: function(scene, x, y) {
+                const bilayerContainer = scene.add.container(x, y);
+                scene.membraneLayer = bilayerContainer; // Save reference
+
+                const bilayer = scene.add.graphics();
+                const headRadius = 10;
+                const tailLength = 25;
+                const width = scene.layout.wrap; // Use layout width
+                const startX = -width / 2;
+
+                for(let i = 0; i < width; i += headRadius * 2.5) {
+                    bilayer.fillStyle(C_COLOR_BLUE, 1).fillCircle(startX + i, 0, headRadius);
+                    bilayer.lineStyle(2, C_COLOR_BLUE, 0.8)
+                           .lineBetween(startX + i - 3, 0 + headRadius, startX + i - 3, 0 + headRadius + tailLength)
+                           .lineBetween(startX + i + 3, 0 + headRadius, startX + i + 3, 0 + headRadius + tailLength);
+                }
+
+                const y2 = 0 + headRadius + tailLength + 5;
+                for(let i = 0; i < width; i += headRadius * 2.5) {
+                    bilayer.fillStyle(C_COLOR_BLUE, 1).fillCircle(startX + i, y2 + tailLength, headRadius);
+                    bilayer.lineStyle(2, C_COLOR_BLUE, 0.8)
+                           .lineBetween(startX + i - 3, y2, startX + i - 3, y2 + tailLength - headRadius)
+                           .lineBetween(startX + i + 3, y2, startX + i + 3, y2 + tailLength - headRadius);
+                }
+                
+                const aaX = 50;
+                const aaY = 0 + headRadius + 10;
+                const aa = scene.add.graphics()
+                    .lineStyle(4, C_COLOR_YELLOW, 1)
+                    .moveTo(aaX, aaY).lineTo(aaX + 5, aaY + 5).lineTo(aaX + 10, aaY).lineTo(aaX + 15, aaY + 5)
+                    .lineTo(aaX + 20, aaY).lineTo(aaX + 25, aaY + 5).lineTo(aaX + 30, aaY);
+                
+                // Z-Order Fix: Set depth
+                aa.setDepth(3); 
+                bilayer.setDepth(2); 
+
+                aa.data = new Phaser.Data.DataManager(aa); // Add data manager
+                aa.data.set('baseY', aaY);
+                scene.aaMolecule = aa; 
+                
+                const aaText = uiLabel(scene, aaX + 15, aaY - 20, "Arachidonic Acid (AA)");
+                aaText.setFill(UI.color.brand).style.fontStyle = 'bold';
+                aaText.setDepth(6); // Z-Order: Above all
+
+                bilayerContainer.add([bilayer, aa, aaText]);
+                scene.gameplayLayer.add(bilayerContainer);
+            },
+
+            /** Animates AA release (Refactored) */
+            animateAARelease: function(scene) {
+                if (!scene.aaMolecule) {
+                    // Safety check if aaMolecule was somehow destroyed
+                    AlfieLab.drawPhospholipidBilayer(scene, scene.layout.midX, scene.layout.midY - 50);
+                    if (!scene.aaMolecule) {
+                        log('Error', 'aaMolecule not found in animateAARelease');
+                        return;
+                    }
+                }
+                
+                const aaWorldPos = new Phaser.Math.Vector2();
+                if (scene.aaMolecule.parentContainer) {
+                    scene.aaMolecule.parentContainer.getWorldTransformMatrix().transformPoint(scene.aaMolecule.x, scene.aaMolecule.y, aaWorldPos);
+                } else {
+                    // Fallback if container is gone
+                    aaWorldPos.x = scene.aaMolecule.x;
+                    aaWorldPos.y = scene.aaMolecule.y;
+                }
+
+                
+                const enzyme = scene.add.graphics()
+                    .fillStyle(C_COLOR_RED, 1).lineStyle(2, 0xaa0000, 1) 
+                    .slice(0, 0, 20, Phaser.Math.DegToRad(30), Phaser.Math.DegToRad(330), false)
+                    .fillPath().strokePath()
+                    .setPosition(aaWorldPos.x - 30, aaWorldPos.y)
+                    .setDepth(4);
+                
+                const enzymeText = uiLabel(scene, enzyme.x, enzyme.y + 35, "PLP A2");
+                enzymeText.setFill('#ff8888').setDepth(6);
+                scene.gameplayLayer.add([enzyme, enzymeText]);
+
+                scene.tweens.add({
+                    targets: [enzyme, enzymeText],
+                    x: '+=40', 
+                    duration: 300,
+                    ease: 'Power1',
+                    onComplete: () => {
+                        scene.tweens.add({
+                            targets: scene.aaMolecule,
+                            y: scene.aaMolecule.y + 48, // Drop into cytosol
+                            alpha: { from: 1, to: 0.8 },
+                            duration: 500,
+                            ease: 'Quad.easeOut',
+                            onComplete: () => {
+                                enzyme.destroy();
+                                enzymeText.destroy();
+                                if (scene.aaMolecule) {
+                                    scene.aaMolecule.setVisible(false);
+                                    scene.aaMolecule.setActive(false); // Deactivate it
+                                }
+                            }
+                        });
+                    }
+                });
+            }
+        };
         // --- NEW GLOBAL HTML BUTTON HANDLERS ---
         function startMission() {
             const overlay = document.getElementById('hero-overlay');
@@ -522,12 +1638,6 @@
             }
         }
 
-
-        /**
-         * Main Phaser Scene Object
-         */
-
-
         // --- Phaser Config ---
         // FIX: Boot game on DOM ready
         window.addEventListener('DOMContentLoaded', () => {
@@ -542,7 +1652,7 @@
                 },
                 backgroundColor: UI.color.bg,
                 parent: 'game-container',
-                scene: [AlfieLab],
+                scene: [AlfieLab], // FIX 2: Use an array for the scene
                 antialias: true,
                 physics: {
                     default: 'arcade',
@@ -554,7 +1664,7 @@
                     pixelArt: false,
                     antialias: true
                 },
-                resolution: window.devicePixelRatio > 1 ? 2 : 1
+                resolution: window.devicePixelRatio > 1 ? 1 : 1
             };
 
             // --- Start Game ---
